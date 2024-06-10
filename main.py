@@ -41,21 +41,23 @@ async def delUser(userId: str = Query(False)):
 async def signup(user: User):
     hashed_password = pwd_context.hash(user.password)
     user_dict = user.dict()
+    user_dict["email"] = user_dict["email"].lower()
     user_dict["hashed_password"] = hashed_password
     user_dict.pop("password")
+    exist_user = users_collection.find_one({"email": user_dict["email"]})
 
-    try:
+    if exist_user is None:
         result = users_collection.insert_one(user_dict)
         new_user = users_collection.find_one({"_id": result.inserted_id})
         new_user["id"] = str(new_user["_id"])
         new_user.pop("_id")
         return UserResponse(**new_user)
-    except DuplicateKeyError:
+    else:
         raise HTTPException(status_code=400, detail="Username or email already exists")
 
 @app.post("/login", response_model=LoginResponse)
 async def login(user: UserLogin):
-    db_user = users_collection.find_one({"email": user.email})
+    db_user = users_collection.find_one({"email": user.email.lower()})
     if db_user and pwd_context.verify(user.password, db_user["hashed_password"]):
         return {"id": str(db_user["_id"]),
                 "username": str(db_user["username"]),
