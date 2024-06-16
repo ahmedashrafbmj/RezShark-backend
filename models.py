@@ -1,4 +1,5 @@
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, conint
+from typing import Annotated
 
 class User(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
@@ -32,10 +33,26 @@ class QuriesReq(BaseModel):
 
 class QuriesResponse(BaseModel):
     id: str
-    type: str
     dateOpened: str
     status: bool
     userId: str
 
 class Status(BaseModel):
     queryId: str
+
+
+class ReservationReq(BaseModel):
+    userId: str
+    email: EmailStr
+    password: str
+    gameDate: str
+    earliestTime: str 
+    latestTime: str 
+    playerCount: Annotated[int,conint(gt=0)]
+    name: str
+    confirmationEmail: EmailStr
+    ccEmails: str
+    hideInBackground: bool
+    selectCourses: list[Annotated[int, conint(ge=0, le=1)]]
+    dateOpened: str
+    status: bool = False

@@ -1,11 +1,17 @@
 from fastapi import FastAPI, HTTPException, Query
 from passlib.context import CryptContext
-from models import User, UserResponse, UserLogin, LoginResponse,QuriesReq,QuriesResponse,Status
+from models import User, UserResponse, UserLogin, LoginResponse,QuriesReq,QuriesResponse,Status,ReservationReq
 from database import users_collection, check_db_connection,queries_collection
 from pymongo.errors import DuplicateKeyError
 from bson import ObjectId
 from typing import List, Optional
 from fastapi.middleware.cors import CORSMiddleware
+import json
+import boto3
+import datetime
+
+# Initialize a session using Amazon Lambda
+client = boto3.client('lambda')
 
 app = FastAPI()
 
@@ -65,7 +71,7 @@ async def login(user: UserLogin):
                 }
     raise HTTPException(status_code=400, detail="Invalid username or password")
 
-@app.get("/queries", response_model=List[QuriesResponse])
+@app.get("/reservations", response_model=List[QuriesResponse])
 async def queries(
         isAdmin: Optional[bool] = Query(False),
         userId: Optional[str] = Query(None),
@@ -84,20 +90,43 @@ async def queries(
         result.append(QuriesResponse(**data))
     return result
 
-@app.post("/addQuery", response_model=QuriesResponse)
-async def queries(qury: QuriesReq):
+@app.post("/addReservation")
+async def addReservation(qury: ReservationReq):
     try:
-
         qury.userId = ObjectId(qury.userId)
         query_dict = qury.dict()
-        result = queries_collection.insert_one(query_dict)
-        queryRes = queries_collection.find_one({"_id": result.inserted_id})
-        queryRes["id"] = str(queryRes["_id"])
-        queryRes["userId"] = str(queryRes["userId"])
-        queryRes.pop("_id")
-        return QuriesResponse(**queryRes)
+        queries_collection.insert_one(query_dict)
+        return True
     except DuplicateKeyError:
-        raise HTTPException(status_code=400, detail="Error Add Query")
+        raise HTTPException(status_code=400, detail="Error Add Reservation")
+    
+# check_lambda_execution_status("3f8e774f-7659-479e-9cb5-39e2cfdb8e5b")
+
+def start_lambda_function(data):
+    # payloadStr = json.dumps({
+    #         "booking_email": "01il84@mepost.pw",
+    #         "booking_password": "1234567",
+    #         "user_date_str": "06-15-2024",
+    #         "user_start_time_str": "06:00",
+    #         "user_end_time_str": "23:00",
+    #         "players_input": 1,
+    #         "receiver_email": "01il84@mepost.pw",
+    #         "name": "khan",
+    #         "email_cc_text": [""],
+    #         "courses_selected": [0, 1, 1, 1, 0]
+    #     })
+
+
+    payloadStr = json.dumps(data)
+    payloadBytesArr = bytes(payloadStr, encoding='utf8')
+    response = client.invoke(
+        FunctionName='script-HelloWorldFunction-TsWKn8pKaVKK',
+        InvocationType='Event',  # Or 'RequestResponse' for async invocation
+        Payload=payloadBytesArr
+    )
+
+    print(response)
+
 
 @app.put("/toggleStatus")
 async def statusToggle(status: Status):
@@ -112,8 +141,24 @@ async def statusToggle(status: Status):
         {"_id": ObjectId(status.queryId)},
         {"$set": {"status": new_status}}
     )
-
+    
     if result.modified_count:
+
+        if new_status:
+            new_item = {
+                "booking_email": item['email'],
+                "booking_password": item['password'],
+                "user_date_str": datetime.datetime.strptime(item['gameDate'], '%Y-%m-%d').strftime('%m-%d-%Y') ,
+                "user_start_time_str": item['earliestTime'],
+                "user_end_time_str": item['latestTime'],
+                "players_input": item['playerCount'],
+                "receiver_email": item['confirmationEmail'],
+                "name": item['name'],
+                "email_cc_text": [''],
+                "courses_selected": item['selectCourses']
+            }
+            print(new_item)
+            start_lambda_function(new_item)
         return {"message": "Status toggled successfully", "new_status": new_status}
     else:
         raise HTTPException(status_code=400, detail="Failed to toggle status")
