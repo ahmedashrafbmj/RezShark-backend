@@ -71,6 +71,75 @@ async def login(user: UserLogin):
                 }
     raise HTTPException(status_code=400, detail="Invalid username or password")
 
+   
+def describe_log_streams():
+    client = boto3.client('logs')
+    log_group_name = f'/aws/lambda/script-HelloWorldFunction-TsWKn8pKaVKK'
+    
+    try:
+        # Describe log streams
+        response = client.describe_log_streams(
+            logGroupName=log_group_name,
+            orderBy='LastEventTime',
+            descending=True,
+            limit=1
+        )
+
+        log_stream = response.get('logStreams', [])
+        if len(log_stream) > 0:
+            log_stream = log_stream[0]
+            return log_stream['logStreamName']
+
+        return None
+
+    except client.exceptions.ResourceNotFoundException as e:
+        print(f"Log group '{log_group_name}' not found.")
+        return None
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
+
+def check_lambda_execution_status(request_id):
+    client = boto3.client('logs')
+    log_group_name = f'/aws/lambda/script-HelloWorldFunction-TsWKn8pKaVKK'
+    
+    main_group = describe_log_streams()
+    if main_group != None:
+        print(main_group)
+        try:
+            # Poll CloudWatch Logs for recent log events
+            response = client.filter_log_events(
+                logGroupName=log_group_name,
+                # logStreamNames=[main_group],
+                filterPattern=f'"{request_id}"',
+                interleaved=True,
+            )
+            
+            # Check for success or error messages
+            for event in response['events']:
+                message = event['message']
+                if 'Booking complete' in message:
+                    print("Completed")
+                    return "Booking Complete"
+                
+                if "Login Error" in message:
+                    print("Login Error")
+                    return "Login Error"
+                
+                if "NO TILES" in message:
+                    print("No Data")
+                    return "No Data"
+            
+            return "Pending"
+            
+        except client.exceptions.ResourceNotFoundException as e:
+            print(f"Lambda function script-HelloWorldFunction-TsWKn8pKaVKK not found.")
+            return "Error"
+        except Exception as e:
+            print(f"Error: {e}")
+            return "Error"
+
+
 @app.get("/reservations", response_model=List[QuriesResponse])
 async def queries(
         isAdmin: Optional[bool] = Query(False),
@@ -87,6 +156,12 @@ async def queries(
         data["id"] = str(data["_id"])
         data["userId"] = str(data["userId"])
 
+        if data["requestId"] != None:
+            new_type = check_lambda_execution_status(data["requestId"])
+        else:
+            new_type = "In Active"
+
+        data["type"] = new_type
         result.append(QuriesResponse(**data))
     return result
 
@@ -95,13 +170,13 @@ async def addReservation(qury: ReservationReq):
     try:
         qury.userId = ObjectId(qury.userId)
         query_dict = qury.dict()
+        query_dict["requestId"] = None
+        query_dict["requestTime"] = None
         queries_collection.insert_one(query_dict)
         return True
     except DuplicateKeyError:
         raise HTTPException(status_code=400, detail="Error Add Reservation")
-    
-# check_lambda_execution_status("3f8e774f-7659-479e-9cb5-39e2cfdb8e5b")
-
+ 
 def start_lambda_function(data):
     # payloadStr = json.dumps({
     #         "booking_email": "01il84@mepost.pw",
@@ -125,7 +200,11 @@ def start_lambda_function(data):
         Payload=payloadBytesArr
     )
 
-    print(response)
+    if response['ResponseMetadata']['RequestId'] and response['ResponseMetadata']['HTTPHeaders']['date']:
+        return (response['ResponseMetadata']['RequestId'], response['ResponseMetadata']['HTTPHeaders']['date'])
+    else:
+        return (None, None)
+    
 
 
 @app.put("/toggleStatus")
@@ -154,11 +233,23 @@ async def statusToggle(status: Status):
                 "players_input": item['playerCount'],
                 "receiver_email": item['confirmationEmail'],
                 "name": item['name'],
-                "email_cc_text": [''],
+                "email_cc_text": item['ccEmails'],
                 "courses_selected": item['selectCourses']
             }
-            print(new_item)
-            start_lambda_function(new_item)
+
+            request_id, date = start_lambda_function(new_item)
+
+            if request_id != None:
+                queries_collection.update_one(
+                    {"_id": ObjectId(status.queryId)},
+                    {"$set": {"requestId": request_id, "requestTime": date}}
+                )
+        else:
+            queries_collection.update_one(
+                    {"_id": ObjectId(status.queryId)},
+                    {"$set": {"requestId": None, "requestTime": None}}
+                )
+
         return {"message": "Status toggled successfully", "new_status": new_status}
     else:
         raise HTTPException(status_code=400, detail="Failed to toggle status")

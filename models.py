@@ -33,7 +33,9 @@ class QuriesReq(BaseModel):
 
 class QuriesResponse(BaseModel):
     id: str
+    resName: str
     dateOpened: str
+    type: str
     status: bool
     userId: str
 
@@ -43,6 +45,7 @@ class Status(BaseModel):
 
 class ReservationReq(BaseModel):
     userId: str
+    resName: str
     email: EmailStr
     password: str
     gameDate: str
@@ -51,7 +54,7 @@ class ReservationReq(BaseModel):
     playerCount: Annotated[int,conint(gt=0)]
     name: str
     confirmationEmail: EmailStr
-    ccEmails: str
+    ccEmails: list[str]
     hideInBackground: bool
     selectCourses: list[Annotated[int, conint(ge=0, le=1)]]
     dateOpened: str
