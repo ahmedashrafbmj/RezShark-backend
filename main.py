@@ -130,7 +130,7 @@ def check_lambda_execution_status(request_id):
                     print("No Data")
                     return "No Data"
             
-            return "Pending"
+            return "Active"
             
         except client.exceptions.ResourceNotFoundException as e:
             print(f"Lambda function script-HelloWorldFunction-TsWKn8pKaVKK not found.")
