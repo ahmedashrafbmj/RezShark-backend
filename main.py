@@ -1,10 +1,10 @@
 from fastapi import FastAPI, HTTPException, Query
 from passlib.context import CryptContext
-from models import User, UserResponse, UserLogin, LoginResponse,QuriesReq,QuriesResponse,Status,ReservationReq
+from models import User, UserResponse, UserLogin, LoginResponse,QuriesReq,QuriesResponse,Status,ReservationReq, QuriesResponseWithInfo
 from database import users_collection, check_db_connection,queries_collection
 from pymongo.errors import DuplicateKeyError
 from bson import ObjectId
-from typing import List, Optional
+from typing import List, Optional, Union
 from fastapi.middleware.cors import CORSMiddleware
 import json
 import boto3
@@ -140,10 +140,11 @@ def check_lambda_execution_status(request_id):
             return "Error"
 
 
-@app.get("/reservations", response_model=List[QuriesResponse])
+@app.get("/reservations")
 async def queries(
         isAdmin: Optional[bool] = Query(False),
         userId: Optional[str] = Query(None),
+        showType: Optional[bool] = Query(True),
     ):
     if isAdmin == True:
         db_data = queries_collection.find()
@@ -156,13 +157,16 @@ async def queries(
         data["id"] = str(data["_id"])
         data["userId"] = str(data["userId"])
 
-        if data["requestId"] != None:
+        if data["requestId"] != None and showType:
             new_type = check_lambda_execution_status(data["requestId"])
         else:
-            new_type = "In Active"
+            new_type = "Inactive"
 
         data["type"] = new_type
-        result.append(QuriesResponse(**data))
+        if showType == False:
+            result.append(QuriesResponseWithInfo(**data))
+        else:
+            result.append(QuriesResponse(**data))
     return result
 
 @app.post("/addReservation")
@@ -172,10 +176,14 @@ async def addReservation(qury: ReservationReq):
         query_dict = qury.dict()
         query_dict["requestId"] = None
         query_dict["requestTime"] = None
-        queries_collection.insert_one(query_dict)
+        result = queries_collection.insert_one(query_dict)
+
+        await statusToggle(status=Status(queryId=str(result.inserted_id)))
+
         return True
     except DuplicateKeyError:
         raise HTTPException(status_code=400, detail="Error Add Reservation")
+
  
 def start_lambda_function(data):
     # payloadStr = json.dumps({

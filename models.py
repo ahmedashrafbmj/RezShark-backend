@@ -35,9 +35,33 @@ class QuriesResponse(BaseModel):
     id: str
     resName: str
     dateOpened: str
+    gameDate: str
     type: str
     status: bool
     userId: str
+    earliestTime: str 
+    latestTime: str 
+    playerCount: int
+
+
+class QuriesResponseWithInfo(BaseModel):
+    id: str
+    resName: str
+    name: str
+    email: str
+    password: str
+    dateOpened: str
+    confirmationEmail: str
+    ccEmails: list[str]
+    selectCourses: list[int]
+    gameDate: str
+    type: str
+    status: bool
+    userId: str
+    earliestTime: str 
+    latestTime: str 
+    playerCount: int
+
 
 class Status(BaseModel):
     queryId: str
