@@ -8,7 +8,8 @@ from typing import List, Optional, Union
 from fastapi.middleware.cors import CORSMiddleware
 import json
 import boto3
-import datetime
+from datetime import datetime, timedelta
+import socketio
 
 # Initialize a session using Amazon Lambda
 client = boto3.client('lambda')
@@ -23,6 +24,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+sio = socketio.AsyncServer(async_mode="asgi",cors_allowed_origins="*")
+socket_app = socketio.ASGIApp(sio, app)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -99,92 +103,16 @@ def describe_log_streams():
         print(f"Error: {e}")
         return None
 
-def check_lambda_execution_status(request_id):
-    client = boto3.client('logs')
-    log_group_name = f'/aws/lambda/script-HelloWorldFunction-TsWKn8pKaVKK'
-    
-    main_group = describe_log_streams()
-    if main_group != None:
-        print(main_group)
-        try:
-            # Poll CloudWatch Logs for recent log events
-            response = client.filter_log_events(
-                logGroupName=log_group_name,
-                # logStreamNames=[main_group],
-                filterPattern=f'"{request_id}"',
-                interleaved=True,
-            )
-            
-            # Check for success or error messages
-            for event in response['events']:
-                message = event['message']
-                if 'Booking complete' in message:
-                    print("Completed")
-                    return "Booking Complete"
-                
-                if "Login Error" in message:
-                    print("Login Error")
-                    return "Login Error"
-                
-                if "NO TILES" in message:
-                    print("No Data")
-                    return "No Data"
-            
-            return "Active"
-            
-        except client.exceptions.ResourceNotFoundException as e:
-            print(f"Lambda function script-HelloWorldFunction-TsWKn8pKaVKK not found.")
-            return "Error"
-        except Exception as e:
-            print(f"Error: {e}")
-            return "Error"
+def get_start_end_time(date_str):
+    start_datetime = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %Z")
+    end_datetime = start_datetime + timedelta(minutes=30)
+
+    start_time_ms = int(start_datetime.timestamp() * 1000)
+    end_time_ms = int(end_datetime.timestamp() * 1000)
+
+    return start_time_ms, end_time_ms
 
 
-@app.get("/reservations")
-async def queries(
-        isAdmin: Optional[bool] = Query(False),
-        userId: Optional[str] = Query(None),
-        showType: Optional[bool] = Query(True),
-    ):
-    if isAdmin == True:
-        db_data = queries_collection.find()
-    else:
-        db_data = queries_collection.find({"userId": ObjectId(userId)})
-
-    result = []
-
-    for data in db_data:
-        data["id"] = str(data["_id"])
-        data["userId"] = str(data["userId"])
-
-        if data["requestId"] != None and showType:
-            new_type = check_lambda_execution_status(data["requestId"])
-        else:
-            new_type = "Inactive"
-
-        data["type"] = new_type
-        if showType == False:
-            result.append(QuriesResponseWithInfo(**data))
-        else:
-            result.append(QuriesResponse(**data))
-    return result
-
-@app.post("/addReservation")
-async def addReservation(qury: ReservationReq):
-    try:
-        qury.userId = ObjectId(qury.userId)
-        query_dict = qury.dict()
-        query_dict["requestId"] = None
-        query_dict["requestTime"] = None
-        result = queries_collection.insert_one(query_dict)
-
-        await statusToggle(status=Status(queryId=str(result.inserted_id)))
-
-        return True
-    except DuplicateKeyError:
-        raise HTTPException(status_code=400, detail="Error Add Reservation")
-
- 
 def start_lambda_function(data):
     # payloadStr = json.dumps({
     #         "booking_email": "01il84@mepost.pw",
@@ -214,6 +142,210 @@ def start_lambda_function(data):
         return (None, None)
     
 
+def startNewLambda(queryId):
+    try:
+        item = queries_collection.find_one({"_id": ObjectId(queryId)})
+
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        
+        new_item = {
+            "booking_email": item['email'],
+            "booking_password": item['password'],
+            "user_date_str": datetime.strptime(item['gameDate'], '%Y-%m-%d').strftime('%m-%d-%Y') ,
+            "user_start_time_str": item['earliestTime'],
+            "user_end_time_str": item['latestTime'],
+            "players_input": item['playerCount'],
+            "receiver_email": item['confirmationEmail'],
+            "name": item['name'],
+            "email_cc_text": item['ccEmails'],
+            "courses_selected": item['selectCourses']
+        }
+
+        request_id, date = start_lambda_function(new_item)
+
+        if request_id != None:
+            queries_collection.update_one(
+                {"_id": ObjectId(queryId)},
+                {"$set": {"requestId": request_id, "requestTime": date}}
+            )
+    except Exception as e:
+        print(e)
+        pass
+
+def updateBookedStatus(queryId):
+    try:
+        item = queries_collection.find_one({"_id": ObjectId(queryId)})
+
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        
+        queries_collection.update_one(
+                {"_id": ObjectId(queryId)},
+                {"$set": {"isBooked": True}}
+            )
+    except Exception as e:
+        print(e)
+        pass
+
+# Function 'HelloWorldFunction' timed out after 600 seconds
+def check_lambda_execution_status(request_id, requestTime, queryId, status):
+    client = boto3.client('logs')
+    log_group_name = f'/aws/lambda/script-HelloWorldFunction-TsWKn8pKaVKK'
+    
+    # main_group = describe_log_streams()
+    # if main_group != None:
+        # print(main_group)
+    try:
+        start_time, end_time = get_start_end_time(requestTime)
+
+        response = client.filter_log_events(
+            logGroupName=log_group_name,
+            # logStreamNames=[main_group],
+            filterPattern=f'"{request_id}"',
+            interleaved=True,
+            startTime=start_time,
+            limit=50
+            # endTime=end_time
+        )
+        global find_it
+        find_it = "Active"
+
+        while 'nextToken' in response:
+           
+            for event in response['events']:
+                message = event['message']
+                if 'Booking completed' in message:
+                    find_it = "Booking Complete"
+                    updateBookedStatus(queryId)
+                    return "Booking Complete"
+                
+                if "Error" in message:
+                    find_it = "Error"
+                
+                if "Login Error" in message:
+                    find_it = "Login Error"
+                    return "Login Error"
+
+                if "Task timed out" in message:
+                    startNewLambda(queryId)
+                    find_it = "Active"
+                    return "Active"
+
+            response = client.filter_log_events(
+                logGroupName=log_group_name,
+                # logStreamNames=[main_group],
+                filterPattern=f'"{request_id}"',
+                interleaved=True,
+                startTime=start_time,
+                limit=50,
+                nextToken=response['nextToken']
+            )
+
+            
+
+        # Poll CloudWatch Logs for recent log events
+        # response = client.filter_log_events(
+        #     logGroupName=log_group_name,
+        #     # logStreamNames=[main_group],
+        #     filterPattern=f'"{request_id}"',
+        #     interleaved=True,
+        #     startTime=start_time,
+        #     # endTime=end_time
+        # )
+        
+        return find_it
+        
+    except client.exceptions.ResourceNotFoundException as e:
+        print(f"Lambda function script-HelloWorldFunction-TsWKn8pKaVKK not found.")
+        return "Error"
+    except Exception as e:
+        print(f"Error: {e}")
+        return "Error"
+
+
+def getReservationHandler(isAdmin, userId):
+    if isAdmin == True:
+        db_data = queries_collection.find()
+    else:
+        db_data = queries_collection.find({"userId": ObjectId(userId)})
+
+    result = []
+
+    for data in db_data:
+        data["id"] = str(data["_id"])
+        data["userId"] = str(data["userId"])
+
+        if data["requestId"] != None and data["status"] and data["isBooked"] == False:
+            new_type = check_lambda_execution_status(data["requestId"], data["requestTime"], data["id"],
+                                                     data["status"])
+        else:
+            new_type = "Booking Complete" if(data["isBooked"]) else "Inactive"
+
+        data["type"] = new_type
+
+        qData = QuriesResponse(**data)
+        result.append(qData.dict())
+    return result
+
+@app.get("/reservations")
+async def queries(
+        isAdmin: Optional[bool] = Query(False),
+        userId: Optional[str] = Query(None),
+        showType: Optional[bool] = Query(True),
+    ):
+    if isAdmin == True:
+        db_data = queries_collection.find()
+    else:
+        db_data = queries_collection.find({"userId": ObjectId(userId)})
+
+    result = []
+
+    for data in db_data:
+        data["id"] = str(data["_id"])
+        data["userId"] = str(data["userId"])
+
+        if data["requestId"] != None and showType and data["status"] and data["isBooked"] == False:
+            new_type = check_lambda_execution_status(data["requestId"], data["requestTime"], data["id"],
+                                                     data["status"])
+        else:
+            new_type = "Booking Complete" if(data["isBooked"]) else "Inactive"
+
+        data["type"] = new_type
+        if showType == False:
+            result.append(QuriesResponseWithInfo(**data))
+        else:
+            result.append(QuriesResponse(**data))
+
+    return result
+
+@app.post("/addReservation")
+async def addReservation(qury: ReservationReq):
+    try:
+        qury.userId = ObjectId(qury.userId)
+        query_dict = qury.dict()
+        query_dict["requestId"] = None
+        query_dict["requestTime"] = None
+        query_dict["isBooked"] = False
+        result = queries_collection.insert_one(query_dict)
+
+        await statusToggle(status=Status(queryId=str(result.inserted_id)))
+
+        return True
+    except DuplicateKeyError:
+        raise HTTPException(status_code=400, detail="Error Add Reservation")
+
+
+@app.delete("/reservation")
+async def addReservation(queryId: str):
+    try:
+        result = queries_collection.delete_one({"_id": ObjectId(queryId)})
+        if result.deleted_count == 1:
+            return True
+        
+        return False
+    except:
+        raise HTTPException(status_code=400, detail="Error Deleting Reservation")
 
 @app.put("/toggleStatus")
 async def statusToggle(status: Status):
@@ -235,7 +367,7 @@ async def statusToggle(status: Status):
             new_item = {
                 "booking_email": item['email'],
                 "booking_password": item['password'],
-                "user_date_str": datetime.datetime.strptime(item['gameDate'], '%Y-%m-%d').strftime('%m-%d-%Y') ,
+                "user_date_str": datetime.strptime(item['gameDate'], '%Y-%m-%d').strftime('%m-%d-%Y') ,
                 "user_start_time_str": item['earliestTime'],
                 "user_end_time_str": item['latestTime'],
                 "players_input": item['playerCount'],
@@ -263,6 +395,25 @@ async def statusToggle(status: Status):
         raise HTTPException(status_code=400, detail="Failed to toggle status")
 
 
+# Define Socket.IO event handlers
+@sio.event
+async def connect(sid, environ):
+    print("Client connected:", sid)
+
+@sio.event
+async def disconnect(sid):
+    print("Client disconnected:", sid)
+
+@sio.event
+async def message(sid, data):
+    if not data:
+        return
+    
+    result = getReservationHandler(data["isAdmin"], data["id"])
+
+    if(len(result) > 0):
+        await sio.emit("message", result, to=sid)
+
 if check_db_connection():
     print("Database connection successful")
 else:
@@ -270,4 +421,4 @@ else:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(socket_app, host="0.0.0.0", port=8000)
