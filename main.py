@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query
 from passlib.context import CryptContext
-from models import User, UserResponse, UserLogin, LoginResponse,QuriesReq,QuriesResponse,Status,ReservationReq, QuriesResponseWithInfo
+from models import User, UserResponse, UserLogin, LoginResponse,QuriesReq,QuriesResponse,Status,ReservationReq, QuriesResponseWithInfo,CoursesResponse,Courses
 from database import users_collection, check_db_connection,queries_collection
 from pymongo.errors import DuplicateKeyError
 from bson import ObjectId
@@ -10,6 +10,9 @@ import json
 import boto3
 from datetime import datetime, timedelta
 import socketio
+import pandas as pd
+import ast
+import pytz
 
 # Initialize a session using Amazon Lambda
 client = boto3.client('lambda')
@@ -29,6 +32,74 @@ sio = socketio.AsyncServer(async_mode="asgi",cors_allowed_origins="*")
 socket_app = socketio.ASGIApp(sio, app)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def process_csv():
+    new_df = pd.DataFrame()
+    df = pd.read_csv("output.csv")
+    
+    for index, row in df.iterrows():
+        obj = {}
+        obj["website_path"] = row["Website Path"]
+        obj["course_title"] = row["Course Title"]
+        obj["location"] = row["Location"]
+        obj["holes"] = row["Holes"]
+
+        courses = row["Courses"].split(",")
+        courses_vals = row["Courses Values"].split(",")
+        courses_data = []
+
+        print(courses)
+        print(courses_vals)
+        for i in range(len(courses)):
+            try:
+                courses_obj = {}
+                courses_obj["course_id"] = courses_vals[i]
+                courses_obj["course_name"] = courses[i]
+
+                courses_data.append(courses_obj)
+            except:
+                pass
+
+        obj["courses"] = courses_data
+
+        new_df = pd.concat([new_df, pd.DataFrame([obj])], ignore_index=True)
+
+    new_df.to_csv("new_output.csv")
+    return new_df
+
+@app.get("/getCourses", response_model=List[CoursesResponse])
+async def allUsers():
+    try:
+        df = pd.read_csv("new_output.csv")
+        result = []
+
+        df['courses'] = df['courses'].apply(ast.literal_eval)
+
+        for index, row in df.iterrows():
+            all_crs = []
+
+            courses = row['courses']
+            for i in range(len(courses)):
+                crs = Courses(
+                    course_id=courses[i]["course_id"],
+                    course_name=courses[i]["course_name"],
+                )
+
+                all_crs.append(crs)
+
+            course = CoursesResponse(
+                course_title=row["course_title"],
+                holes=row["course_title"],
+                location=row["location"],
+                website_path=row["website_path"],
+                courses=all_crs
+            )
+
+            result.append(course)
+        return result
+    except:
+        raise HTTPException(status_code=400, detail="Error getting courses")
 
 @app.get("/users", response_model=List[UserResponse])
 async def allUsers():
@@ -70,7 +141,7 @@ async def login(user: UserLogin):
     db_user = users_collection.find_one({"email": user.email.lower()})
     if db_user and pwd_context.verify(user.password, db_user["hashed_password"]):
         return {"id": str(db_user["_id"]),
-                "username": str(db_user["username"]),
+                "username": str(db_user["nickname"]),
                 "isAdmin": str(db_user["isAdmin"]),
                 }
     raise HTTPException(status_code=400, detail="Invalid username or password")
@@ -142,12 +213,33 @@ def start_lambda_function(data):
         return (None, None)
     
 
+def is_within_24_hours(date_str):
+    # Parse the input date string to a datetime object
+    date = datetime.strptime(date_str, '%a, %d %b %Y %H:%M:%S %Z')
+    
+    # Convert the datetime object to UTC
+    date = date.replace(tzinfo=pytz.UTC)
+    
+    # Get the current time in UTC
+    now = datetime.now(pytz.UTC)
+    
+    # Calculate the difference
+    difference = now - date
+    
+    # Check if the difference is within 24 hours
+    return abs(difference) <= timedelta(hours=24)
+
+
 def startNewLambda(queryId):
     try:
         item = queries_collection.find_one({"_id": ObjectId(queryId)})
 
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
+        
+        res = is_within_24_hours(item["firstReqTime"])
+        if res == False:
+            return False
         
         new_item = {
             "booking_email": item['email'],
@@ -159,7 +251,10 @@ def startNewLambda(queryId):
             "receiver_email": item['confirmationEmail'],
             "name": item['name'],
             "email_cc_text": item['ccEmails'],
-            "courses_selected": item['selectCourses']
+            "courses_selected": item['selectCourses'],
+            'course_names': item['selectCoursesNames'],
+            'website_link': item['selectCoursesUrl'],
+            'course_values': item['selectCourses'],
         }
 
         request_id, date = start_lambda_function(new_item)
@@ -169,6 +264,8 @@ def startNewLambda(queryId):
                 {"_id": ObjectId(queryId)},
                 {"$set": {"requestId": request_id, "requestTime": date}}
             )
+
+        return True
     except Exception as e:
         print(e)
         pass
@@ -228,9 +325,12 @@ def check_lambda_execution_status(request_id, requestTime, queryId, status):
                     return "Login Error"
 
                 if "Task timed out" in message:
-                    startNewLambda(queryId)
-                    find_it = "Active"
-                    return "Active"
+                    res = startNewLambda(queryId)
+                    if res:
+                        find_it = "Active"
+                    else:
+                        find_it = "Expired"
+                    return find_it
 
             response = client.filter_log_events(
                 logGroupName=log_group_name,
@@ -327,6 +427,7 @@ async def addReservation(qury: ReservationReq):
         query_dict["requestId"] = None
         query_dict["requestTime"] = None
         query_dict["isBooked"] = False
+        query_dict["firstReqTime"] = None
         result = queries_collection.insert_one(query_dict)
 
         await statusToggle(status=Status(queryId=str(result.inserted_id)))
@@ -374,7 +475,10 @@ async def statusToggle(status: Status):
                 "receiver_email": item['confirmationEmail'],
                 "name": item['name'],
                 "email_cc_text": item['ccEmails'],
-                "courses_selected": item['selectCourses']
+                "courses_selected": item['selectCourses'],
+                'course_names': item['selectCoursesNames'],
+                'website_link': item['selectCoursesUrl'],
+                'course_values': item['selectCourses'],
             }
 
             request_id, date = start_lambda_function(new_item)
@@ -382,7 +486,7 @@ async def statusToggle(status: Status):
             if request_id != None:
                 queries_collection.update_one(
                     {"_id": ObjectId(status.queryId)},
-                    {"$set": {"requestId": request_id, "requestTime": date}}
+                    {"$set": {"requestId": request_id, "requestTime": date, "firstReqTime": date}}
                 )
         else:
             queries_collection.update_one(
@@ -420,5 +524,6 @@ else:
     raise HTTPException(status_code=500, detail="Database connection failed")
 
 if __name__ == "__main__":
+    # process_csv()
     import uvicorn
     uvicorn.run(socket_app, host="0.0.0.0", port=8000)

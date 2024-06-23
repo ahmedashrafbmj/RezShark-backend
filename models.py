@@ -1,10 +1,15 @@
 from pydantic import BaseModel, Field, EmailStr, conint
-from typing import Annotated
+from typing import Annotated, Optional
 
 class User(BaseModel):
-    username: str = Field(..., min_length=3, max_length=50)
     email: EmailStr
     password: str = Field(..., min_length=6)
+    first_name: str
+    last_name: str
+    nickname: str
+    birthday: Optional[str]
+    city: Optional[str]
+    state: Optional[str]
     isAdmin: bool
 
 class UserInDB(User):
@@ -12,7 +17,7 @@ class UserInDB(User):
 
 class UserResponse(BaseModel):
     id: str
-    username: str
+    nickname: str
     email: EmailStr
     isAdmin: bool
 
@@ -81,5 +86,18 @@ class ReservationReq(BaseModel):
     ccEmails: list[str]
     hideInBackground: bool
     selectCourses: list[Annotated[int, conint(ge=0, le=1)]]
+    selectCoursesNames: list[str]
+    selectCoursesUrl: str
     dateOpened: str
     status: bool = False
+
+class Courses(BaseModel):
+    course_id: int
+    course_name: str
+
+class CoursesResponse(BaseModel):
+    website_path: str
+    course_title: str
+    location: str
+    courses: list[Courses]
+    holes: str
