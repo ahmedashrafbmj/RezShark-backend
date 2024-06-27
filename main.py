@@ -143,6 +143,7 @@ async def login(user: UserLogin):
         return {"id": str(db_user["_id"]),
                 "username": str(db_user["nickname"]),
                 "isAdmin": str(db_user["isAdmin"]),
+                **db_user
                 }
     raise HTTPException(status_code=400, detail="Invalid username or password")
 
@@ -405,11 +406,17 @@ async def queries(
         data["id"] = str(data["_id"])
         data["userId"] = str(data["userId"])
 
-        if data["requestId"] != None and showType and data["status"] and data["isBooked"] == False:
-            new_type = check_lambda_execution_status(data["requestId"], data["requestTime"], data["id"],
-                                                     data["status"])
+        # if data["requestId"] != None and showType and data["status"] and data["isBooked"] == False:
+        #     new_type = check_lambda_execution_status(data["requestId"], data["requestTime"], data["id"],
+        #                                              data["status"])
+        # else:
+
+        if(data["isBooked"]):
+            new_type = "Booking Complete"
+        elif(data["status"] == False):
+            new_type = "Inactive"
         else:
-            new_type = "Booking Complete" if(data["isBooked"]) else "Inactive"
+            new_type = "Loading Status ..."
 
         data["type"] = new_type
         if showType == False:

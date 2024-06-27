@@ -27,8 +27,15 @@ class UserLogin(BaseModel):
 
 class LoginResponse(BaseModel):
     id: str
-    username: str
+    nickname: str
+    email: EmailStr
     isAdmin: bool
+    first_name: str
+    last_name: str
+    nickname: str
+    birthday: str
+    city: str
+    state: str
 
 class QuriesReq(BaseModel):
     type: str
