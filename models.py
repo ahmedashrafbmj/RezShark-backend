@@ -53,6 +53,7 @@ class QuriesResponse(BaseModel):
     userId: str
     earliestTime: str 
     latestTime: str 
+    requestType: str
     playerCount: int
 
 
@@ -72,6 +73,7 @@ class QuriesResponseWithInfo(BaseModel):
     userId: str
     earliestTime: str 
     latestTime: str 
+    requestType: str
     playerCount: int
 
 
@@ -96,6 +98,7 @@ class ReservationReq(BaseModel):
     selectCoursesNames: list[str]
     selectCoursesUrl: str
     dateOpened: str
+    requestType: str
     status: bool = False
 
 class Courses(BaseModel):

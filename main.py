@@ -231,6 +231,24 @@ def is_within_24_hours(date_str):
     return abs(difference) <= timedelta(hours=24)
 
 
+
+def is_within_20_minutes(date_str):
+    # Parse the input date string to a datetime object
+    date = datetime.strptime(date_str, '%a, %d %b %Y %H:%M:%S %Z')
+    
+    # Convert the datetime object to UTC
+    date = date.replace(tzinfo=pytz.UTC)
+    
+    # Get the current time in UTC
+    now = datetime.now(pytz.UTC)
+    
+    # Calculate the difference
+    difference = now - date
+    
+    # Check if the difference is within 20 minutes
+    return abs(difference) <= timedelta(minutes=20)
+
+
 def startNewLambda(queryId):
     try:
         item = queries_collection.find_one({"_id": ObjectId(queryId)})
@@ -238,6 +256,11 @@ def startNewLambda(queryId):
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
         
+        if(item['requestType'] == 'Time'):
+            res = is_within_20_minutes(item["firstReqTime"])
+            if res == False:
+                return False
+
         res = is_within_24_hours(item["firstReqTime"])
         if res == False:
             return False
@@ -437,7 +460,8 @@ async def addReservation(qury: ReservationReq):
         query_dict["firstReqTime"] = None
         result = queries_collection.insert_one(query_dict)
 
-        await statusToggle(status=Status(queryId=str(result.inserted_id)))
+        if qury.requestType == "Standard":
+            await statusToggle(status=Status(queryId=str(result.inserted_id)))
 
         return True
     except DuplicateKeyError:
