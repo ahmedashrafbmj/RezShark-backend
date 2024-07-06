@@ -97,6 +97,11 @@ def getSchedularData(time_str):
         # Calculate the time range
         start_time = reference_time - timedelta(minutes=5)
         end_time = reference_time + timedelta(minutes=5)
+
+        current_date = datetime.now().date()
+        formatted_date = current_date.strftime("%Y-%m-%d")
+
+        print(formatted_date)
         
         # Query the collection
         query = {
@@ -107,6 +112,7 @@ def getSchedularData(time_str):
             "requestType": "Time",
             "status": False,
             "isBooked": False,
+            "gameDate": formatted_date,
         }
         
         item = queries_collection.find(query)
