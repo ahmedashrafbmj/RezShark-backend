@@ -105,14 +105,14 @@ def getSchedularData(time_str):
         
         # Query the collection
         query = {
-            "earliestTime": {
+            "scriptTime": {
                 "$gte": start_time.strftime("%H:%M"),
                 "$lte": end_time.strftime("%H:%M")
             },
             "requestType": "Time",
             "status": False,
             "isBooked": False,
-            "gameDate": formatted_date,
+            "scriptDate": formatted_date,
         }
         
         item = queries_collection.find(query)

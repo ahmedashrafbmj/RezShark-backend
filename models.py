@@ -55,7 +55,8 @@ class QuriesResponse(BaseModel):
     latestTime: str 
     requestType: str
     playerCount: int
-
+    scriptDate: str
+    scriptTime: str
 
 class QuriesResponseWithInfo(BaseModel):
     id: str
@@ -75,7 +76,8 @@ class QuriesResponseWithInfo(BaseModel):
     latestTime: str 
     requestType: str
     playerCount: int
-
+    scriptDate: str
+    scriptTime: str
 
 class Status(BaseModel):
     queryId: str
@@ -100,6 +102,8 @@ class ReservationReq(BaseModel):
     dateOpened: str
     requestType: str
     status: bool = False
+    scriptDate: str
+    scriptTime: str
 
 class Courses(BaseModel):
     course_id: int
