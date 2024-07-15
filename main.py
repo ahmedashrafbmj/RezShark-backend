@@ -150,7 +150,7 @@ async def login(user: UserLogin):
    
 def describe_log_streams():
     client = boto3.client('logs')
-    log_group_name = f'/aws/lambda/script-HelloWorldFunction-TsWKn8pKaVKK'
+    log_group_name = f'/aws/lambda/script-HelloWorldFunction-myVGXabdpnKs'
     
     try:
         # Describe log streams
@@ -203,7 +203,7 @@ def start_lambda_function(data):
     payloadStr = json.dumps(data)
     payloadBytesArr = bytes(payloadStr, encoding='utf8')
     response = client.invoke(
-        FunctionName='script-HelloWorldFunction-TsWKn8pKaVKK',
+        FunctionName='script-HelloWorldFunction-myVGXabdpnKs',
         InvocationType='Event',  # Or 'RequestResponse' for async invocation
         Payload=payloadBytesArr
     )
@@ -312,7 +312,7 @@ def updateBookedStatus(queryId):
 # Function 'HelloWorldFunction' timed out after 600 seconds
 def check_lambda_execution_status(request_id, requestTime, queryId, status):
     client = boto3.client('logs')
-    log_group_name = f'/aws/lambda/script-HelloWorldFunction-TsWKn8pKaVKK'
+    log_group_name = f'/aws/lambda/script-HelloWorldFunction-myVGXabdpnKs'
     
     # main_group = describe_log_streams()
     # if main_group != None:
@@ -381,7 +381,7 @@ def check_lambda_execution_status(request_id, requestTime, queryId, status):
         return find_it
         
     except client.exceptions.ResourceNotFoundException as e:
-        print(f"Lambda function script-HelloWorldFunction-TsWKn8pKaVKK not found.")
+        print(f"Lambda function script-HelloWorldFunction-myVGXabdpnKs not found.")
         return "Error"
     except Exception as e:
         print(f"Error: {e}")
