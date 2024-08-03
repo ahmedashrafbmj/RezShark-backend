@@ -23,11 +23,11 @@ def start_lambda_function(data):
     #         "courses_selected": [0, 1, 1, 1, 0]
     #     })
 
-
+    print(data)
     payloadStr = json.dumps(data)
     payloadBytesArr = bytes(payloadStr, encoding='utf8')
     response = client.invoke(
-        FunctionName='script-HelloWorldFunction-TsWKn8pKaVKK',
+        FunctionName='rezshark_bethpark_script',
         InvocationType='Event',  # Or 'RequestResponse' for async invocation
         Payload=payloadBytesArr
     )
@@ -52,8 +52,7 @@ def statusToggle(status: Status):
         {"$set": {"status": new_status}}
     )
     
-    if result.modified_count:
-
+    if result.modified_count > 0:
         if new_status:
             new_item = {
                 "booking_email": item['email'],
@@ -116,7 +115,7 @@ def getSchedularData(time_str):
         }
         
         item = queries_collection.find(query)
-
+        
         for it in item:
             statusToggle(status=Status(queryId=str(it["_id"])))
             

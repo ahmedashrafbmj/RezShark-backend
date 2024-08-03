@@ -150,7 +150,7 @@ async def login(user: UserLogin):
    
 def describe_log_streams():
     client = boto3.client('logs')
-    log_group_name = f'/aws/lambda/script-HelloWorldFunction-myVGXabdpnKs'
+    log_group_name = f'/aws/lambda/rezshark_bethpark_script'
     
     try:
         # Describe log streams
@@ -203,7 +203,7 @@ def start_lambda_function(data):
     payloadStr = json.dumps(data)
     payloadBytesArr = bytes(payloadStr, encoding='utf8')
     response = client.invoke(
-        FunctionName='script-HelloWorldFunction-myVGXabdpnKs',
+        FunctionName='rezshark_bethpark_script',
         InvocationType='Event',  # Or 'RequestResponse' for async invocation
         Payload=payloadBytesArr
     )
@@ -312,7 +312,7 @@ def updateBookedStatus(queryId):
 # Function 'HelloWorldFunction' timed out after 600 seconds
 def check_lambda_execution_status(request_id, requestTime, queryId, status):
     client = boto3.client('logs')
-    log_group_name = f'/aws/lambda/script-HelloWorldFunction-myVGXabdpnKs'
+    log_group_name = f'/aws/lambda/rezshark_bethpark_script'
     
     # main_group = describe_log_streams()
     # if main_group != None:
@@ -341,14 +341,14 @@ def check_lambda_execution_status(request_id, requestTime, queryId, status):
                     updateBookedStatus(queryId)
                     return "Booking Complete"
                 
-                if "Error" in message:
+                if "Error" in message and "RESTART:" not in message:
                     find_it = "Error"
                 
                 if "Login Error" in message:
                     find_it = "Login Error"
                     return "Login Error"
 
-                if "Task timed out" in message:
+                if "RESTART:" in message and "REPORT RequestId:" in message:
                     res = startNewLambda(queryId)
                     if res:
                         find_it = "Active"
@@ -366,7 +366,11 @@ def check_lambda_execution_status(request_id, requestTime, queryId, status):
                 nextToken=response['nextToken']
             )
 
-            
+        if find_it == "Login Error":
+            queries_collection.update_one(
+                    {"_id": ObjectId(queryId)},
+                    {"$set": {"status": False}}
+                )
 
         # Poll CloudWatch Logs for recent log events
         # response = client.filter_log_events(
@@ -381,7 +385,7 @@ def check_lambda_execution_status(request_id, requestTime, queryId, status):
         return find_it
         
     except client.exceptions.ResourceNotFoundException as e:
-        print(f"Lambda function script-HelloWorldFunction-myVGXabdpnKs not found.")
+        print(f"Lambda function rezshark_bethpark_script not found.")
         return "Error"
     except Exception as e:
         print(f"Error: {e}")
@@ -457,6 +461,7 @@ async def addReservation(qury: ReservationReq):
         query_dict["requestId"] = None
         query_dict["requestTime"] = None
         query_dict["isBooked"] = False
+        query_dict["restart"] = False
         query_dict["firstReqTime"] = None
         result = queries_collection.insert_one(query_dict)
 
@@ -507,9 +512,9 @@ async def statusToggle(status: Status):
                 "name": item['name'],
                 "email_cc_text": item['ccEmails'],
                 "courses_selected": item['selectCourses'],
-                'course_names': item['selectCoursesNames'],
-                'website_link': item['selectCoursesUrl'],
-                'course_values': item['selectCourses'],
+                "course_names": item['selectCoursesNames'],
+                "website_link": item['selectCoursesUrl'],
+                "course_values": item['selectCourses'],
             }
 
             request_id, date = start_lambda_function(new_item)
