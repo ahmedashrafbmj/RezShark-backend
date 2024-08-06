@@ -51,6 +51,7 @@ class QuriesResponse(BaseModel):
     type: str
     status: bool
     userId: str
+    booking_class: str
     earliestTime: str 
     latestTime: str 
     requestType: str
@@ -70,6 +71,7 @@ class QuriesResponseWithInfo(BaseModel):
     selectCourses: list[int]
     gameDate: str
     type: str
+    booking_class: str
     status: bool
     userId: str
     earliestTime: str 
@@ -89,7 +91,8 @@ class ReservationReq(BaseModel):
     email: EmailStr
     password: str
     gameDate: str
-    earliestTime: str 
+    earliestTime: str
+    booking_class: str
     latestTime: str 
     playerCount: Annotated[int,conint(gt=0)]
     name: str
