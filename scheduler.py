@@ -69,6 +69,7 @@ def statusToggle(status: Status):
                 'website_link': item['selectCoursesUrl'],
                 'course_values': item['selectCourses'],
                 'booking_class': item['booking_class'],
+                "booking_class_ids": item['booking_class_ids'],
             }
 
             request_id, date = start_lambda_function(new_item)

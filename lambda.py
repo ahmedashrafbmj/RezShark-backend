@@ -26,6 +26,7 @@ class Reservation:
         self.booking_email = None
         self.booking_password = None
         self.booking_class = None
+        self.booking_class_ids = []
         self.user_date_str= None
         self.user_start_time_str= None
         self.user_end_time_str= None
@@ -129,14 +130,14 @@ class Reservation:
         else:
             return 'all'
         
-    def checkTiles(self, id):
+    def checkTiles(self, id, class_id):
         try:
             query_string = {
                 "time": self.part_of_day(),
                 "date": self.user_date_str,
                 "holes": "all",
                 "players": self.players_input,
-                "booking_class": self.booking_class,
+                "booking_class": f"{class_id}",
                 "schedule_id": f"{id}",
                 "schedule_ids[]": [
                     "2517",
@@ -220,7 +221,7 @@ class Reservation:
                     'holes': holes,
                     'players': players,
                     'carts': False,
-                    'booking_class': booking_class_id,
+                    'booking_class_id': booking_class_id,
                     'duration': 1,
                     'foreup_discount': foreup_discount,
                     'foreup_trade_discount_rate': foreup_trade_discount_rate,
@@ -419,7 +420,8 @@ def lambda_handler(event, context):
         res.players_input = event.get('players_input')
         res.receiver_email = event.get('receiver_email')
         res.name = event.get('name')
-        res.booking_class = int(event.get('booking_class'))
+        res.booking_class = event.get('booking_class')
+        res.booking_class_ids = event.get('booking_class_ids')
         res.email_cc_text = event.get('email_cc_text')
         res.course_names=event.get('course_names')
         course_vals=event.get('course_values')
@@ -429,8 +431,8 @@ def lambda_handler(event, context):
         res.get_website_cookie()
         res.loginHandler()
         
-        for course in res.courses_selected:
-            haveTitles =  res.checkTiles(course)
+        for i, course in enumerate(res.courses_selected):
+            haveTitles =  res.checkTiles(course, res.booking_class_ids[i])
             if haveTitles == True:
                 break
         
@@ -446,6 +448,7 @@ def lambda_handler(event, context):
             'body': json.dumps('Hello, World!')
         }
     except Exception as e:
+        log.info(e)
         log.info("RESTART: Error")
         return {
             'statusCode': 400,

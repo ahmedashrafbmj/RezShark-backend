@@ -13,6 +13,7 @@ import socketio
 import pandas as pd
 import ast
 import pytz
+import json
 
 # Initialize a session using Amazon Lambda
 client = boto3.client('lambda')
@@ -33,6 +34,8 @@ socket_app = socketio.ASGIApp(sio, app)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+with open('./data.json', 'r') as file:
+    bethpark_data = json.load(file)
 
 def process_csv():
     new_df = pd.DataFrame()
@@ -280,6 +283,7 @@ def startNewLambda(queryId):
             'website_link': item['selectCoursesUrl'],
             'course_values': item['selectCourses'],
             'booking_class': item['booking_class'],
+            "booking_class_ids": item['booking_class_ids'],
         }
 
         request_id, date = start_lambda_function(new_item)
@@ -344,6 +348,9 @@ def check_lambda_execution_status(request_id, requestTime, queryId, status):
                 
                 if "Error" in message and "RESTART:" not in message:
                     find_it = "Error"
+                
+                if "No tiles" in message and "RESTART:" not in message:
+                    find_it = "No Booking Available"
                 
                 if "Login Error" in message:
                     find_it = "Login Error"
@@ -454,6 +461,20 @@ async def queries(
 
     return result
 
+def get_booking_ids(courses: list, class_name:str):
+    book_data = []
+    
+    for c in courses:
+        for beth in bethpark_data:
+            if beth["teesheet_id"] == str(c):
+                for bc in beth["booking_classes"]:
+                    if class_name.lower() == bc["name"].lower():
+                        book_data.append(int(bc["booking_class_id"]))
+
+
+    print(book_data)
+    return book_data
+
 @app.post("/addReservation")
 async def addReservation(qury: ReservationReq):
     try:
@@ -464,6 +485,7 @@ async def addReservation(qury: ReservationReq):
         query_dict["isBooked"] = False
         query_dict["restart"] = False
         query_dict["firstReqTime"] = None
+        query_dict["booking_class_ids"] = get_booking_ids(qury.selectCourses,qury.booking_class)
         result = queries_collection.insert_one(query_dict)
 
         if qury.requestType == "Standard":
@@ -517,8 +539,9 @@ async def statusToggle(status: Status):
                 "website_link": item['selectCoursesUrl'],
                 "course_values": item['selectCourses'],
                 "booking_class": item['booking_class'],
+                "booking_class_ids": item['booking_class_ids'],
             }
-
+            print(new_item)
             request_id, date = start_lambda_function(new_item)
 
             if request_id != None:
